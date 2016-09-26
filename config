@@ -1,0 +1,19 @@
+<plugin>
+  <groupId>io.goudai</groupId>
+  <artifactId>war-plugin</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <configuration>
+  <includes>
+						<include>**/*.js</include>
+					</includes>
+				</configuration>
+				<executions>
+					<execution>
+						<id>first</id>
+						<phase>package</phase>
+						<goals>
+							<goal>zip</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
