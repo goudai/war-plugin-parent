@@ -74,6 +74,7 @@ public class JSCSSZipHelpr {
 			throw new RuntimeException(e);
 		}
 	}
+
     private static ErrorReporter create(final File srcFile) {
 		ErrorReporter reporter = new ErrorReporter() {
 			public void warning(String message, String sourceName, int line,
