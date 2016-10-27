@@ -29,37 +29,43 @@ import java.util.concurrent.Executors;
 @Mojo(name = "zip")
 public class ZipMojoSupport extends AbstractMojo {
 
-    @Parameter
+    @Parameter(required = false)
     protected String[] includes;
 
-    @Parameter
-    protected String[] excludes;
+    @Parameter(required = false)
+    protected String[] excludeDirectorys;
 
-    @Parameter
+    @Parameter(required = false)
+    private String[] excludeFiles;
+
+    @Parameter(required = true)
     private String accessKey;
 
-    @Parameter
+    @Parameter(required = true)
     private String password;
 
-    @Parameter
+    @Parameter(required = true)
     private String prefix;
+
+    @Parameter(required = true)
+    private String projectName;
+
+    @Parameter(required = true)
+    private String bucketName;
 
     @Parameter(defaultValue = "${basedir}/src/main/webapp")
     private File sourceDirectory;
+
     @Parameter(defaultValue = "${basedir}/src/main/webapp")
     private String webapp;
 
     @Parameter(defaultValue = "${project.build.directory}/${project.build.finalName}")
     private String dest;
 
+
     static private MessageDigest instance;
-
-
     private final String DEFAULT_ENDPOINT = "http://oss-cn-hangzhou.aliyuncs.com";
-    OSSClient ossClient;
-    String bucketName = "sk-static";
-
-
+    private OSSClient ossClient;
     private List<File> deleteFiles = new ArrayList<File>(50);
     private List<File> jspFiles = new ArrayList<File>(50);
     private HashMap<String, String> mapping = new HashMap<String, String>();
@@ -67,6 +73,8 @@ public class ZipMojoSupport extends AbstractMojo {
 
 
     public void execute() throws MojoExecutionException, MojoFailureException {
+        excludeDirectorys = excludeDirectorys == null ? new String[0] : excludeDirectorys;
+        excludeFiles = excludeFiles == null ? new String[0] : excludeFiles;
         ossClient = new OSSClient(DEFAULT_ENDPOINT, accessKey, password);
         try {
             instance = MessageDigest.getInstance("MD5");
@@ -84,30 +92,61 @@ public class ZipMojoSupport extends AbstractMojo {
         if (root.isDirectory()) {
             File[] files = root.listFiles();
             for (File file : files) {
+                String fileName = file.getName();
                 if (file.isDirectory()) {
-                    doExecute(file);
+                    boolean isExclued = false;
+                    for (String exclude : excludeDirectorys) {
+                        if (fileName.equals(exclude)) {
+                            isExclued = true;
+                            break;
+                        }
+                    }
+                    if (!isExclued) {
+                        doExecute(file);
+                    }
                 } else {
-                    upload(file);
+                    boolean isExclued = false;
+                    for (String exclude : excludeFiles) {
+                        if (fileName.equals(exclude)) {
+                            isExclued = true;
+                            break;
+                        }
+                    }
+                    if (!isExclued) {
+                        upload(file);
+                    }
                 }
             }
         } else {
-            upload(root);
+            boolean isExclued = false;
+            for (String exclude : excludeFiles) {
+                if (root.getName().equals(exclude)) {
+                    isExclued = true;
+                    break;
+                }
+            }
+            if (!isExclued) {
+                upload(root);
+            }
+
         }
 
     }
 
     private void upload(File file) {
-        if(file.getName().endsWith(".xml"))return;
-        if (file.getName().endsWith(".jsp")) {
+        String fileName = file.getName();
+        if (fileName.endsWith(".xml") || fileName.equals("robots.txt") || fileName.equals("favicon.ico")) return;
+
+        if (fileName.endsWith(".jsp")) {
             this.jspFiles.add(file);
             return;
         }
         if (!file.getAbsolutePath().endsWith(".jsp")) {
             this.deleteFiles.add(file);
-            String name = "${ctx}/" + getPath(file);
-            if (file.getName().endsWith(".js")) {
+            String name = "${stc}/" + getPath(file);
+            if (fileName.endsWith(".js")) {
                 handleJs(file, name);
-            } else if (file.getName().endsWith(".css")) {
+            } else if (fileName.endsWith(".css")) {
                 handleCss(file, name);
             } else {
                 try {
@@ -174,7 +213,7 @@ public class ZipMojoSupport extends AbstractMojo {
         try (BufferedReader reader = new BufferedReader(new FileReader(jsp))) {
             String line = null;
             while ((line = reader.readLine()) != null) {
-                dest.append(line+"\r\n");
+                dest.append(line + "\r\n");
             }
             return dest.toString();
         } catch (IOException e) {
@@ -190,41 +229,43 @@ public class ZipMojoSupport extends AbstractMojo {
     //"http://static.mayishike.cm/"
     private void handleJs(File file, String name) {
         String content = JSCSSZipHelpr.compress2JS(file);
-        String newFileName = file.getName().split("\\.")[0] +".hash." +parseByte2HexStr(instance.digest(content.getBytes())) + ".js";
+        String newFileName = file.getName().split("\\.")[0] + ".hash." + parseByte2HexStr(instance.digest(content.getBytes())) + ".js";
         String key = getPath(file).replace(file.getName(), newFileName).replace("\\", "/");
 
-        mapping.put(name, prefix + "/" + key);
+        String value = prefix + "/" + projectName + "/" + key;
+        mapping.put(name, value);
 
         upload(file.getName(), content, key);
     }
 
     private void handleCss(File file, String name) {
         String content = JSCSSZipHelpr.compress2CSS(file);
-        String newFileName = file.getName().split("\\.")[0] +".hash." + parseByte2HexStr(instance.digest(content.getBytes())) + ".css";
+        String newFileName = file.getName().split("\\.")[0] + ".hash." + parseByte2HexStr(instance.digest(content.getBytes())) + ".css";
         String key = getPath(file).replace(file.getName(), newFileName).replace("\\", "/");
 
-        mapping.put(name, prefix + "/" + key);
+        mapping.put(name, prefix + "/" + projectName + "/" + key);
 
         upload(file.getName(), content, key);
 
     }
 
     private void handleImage(File file, String name) throws IOException {
-        String newFileName = file.getName().split("\\.")[0] +".hash." +  parseByte2HexStr(instance.digest(FileUtils.fileRead(file).getBytes())) + "."+file.getName().split("\\.")[1];
+        String newFileName = file.getName().split("\\.")[0] + ".hash." + parseByte2HexStr(instance.digest(FileUtils.fileRead(file).getBytes())) + "." + file.getName().split("\\.")[1];
         String key = getPath(file).replace(file.getName(), newFileName).replace("\\", "/");
 
-        mapping.put(name, prefix + "/" + key);
+        String value = prefix + "/" + projectName + "/" + key;
+        mapping.put(name, value);
 
         ObjectMetadata objectMetadata = new ObjectMetadata();
         String mimetype = Mimetypes.getInstance().getMimetype(file.getName());
         if (mimetype != null) {
             objectMetadata.setContentType(mimetype);
         }
-        getLog().info(file.getName() +" ----->                                      http://static.mayishike.com/" + key + "                     " + mimetype);
+        getLog().info(file.getName() + " ----->                                      " + value + "                     " + mimetype);
         try {
             byte[] buf = IOUtils.readStreamAsByteArray(new FileInputStream(file));
             objectMetadata.setContentLength(buf.length);
-            ossClient.putObject(bucketName, key, new ByteArrayInputStream(buf), objectMetadata);
+            ossClient.putObject(bucketName, projectName + "/" + key, new ByteArrayInputStream(buf), objectMetadata);
         } catch (OSSException e) {
             getLog().error(e.getMessage(), e);
         } catch (ClientException e) {
@@ -235,10 +276,11 @@ public class ZipMojoSupport extends AbstractMojo {
     private void upload(String filename, String content, String key) {
         ObjectMetadata objectMetadata = new ObjectMetadata();
         String mimetype = Mimetypes.getInstance().getMimetype(filename);
+        key = projectName + "/" + key;
         if (mimetype != null) {
             objectMetadata.setContentType(mimetype);
         }
-        getLog().info(filename + " ---->                                      http://static.mayishike.com/" + key + "                     " + mimetype);
+        getLog().info(filename + " ---->                                     " + prefix + "/" + key + "                     " + mimetype);
         try {
             byte[] buf = content.getBytes();
             objectMetadata.setContentLength(buf.length);
