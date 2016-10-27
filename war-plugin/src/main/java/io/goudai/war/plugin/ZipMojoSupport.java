@@ -14,6 +14,7 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.codehaus.plexus.util.FileUtils;
 
 import java.io.*;
+import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -199,10 +200,12 @@ public class ZipMojoSupport extends AbstractMojo {
                 file.delete();
             }
             file.createNewFile();
-            try (BufferedWriter bf = new BufferedWriter(new FileWriter(file))) {
-                bf.write(readJsp2String);
-                bf.flush();
+            ;
+            try (BufferedWriter bufferedWriter = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file),"UTF-8"))) {
+                bufferedWriter.write(readJsp2String);
+                bufferedWriter.flush();
             }
+
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -210,13 +213,15 @@ public class ZipMojoSupport extends AbstractMojo {
 
     private String readJsp2String(File jsp) {
         StringBuilder dest = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new FileReader(jsp))) {
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(jsp), "UTF-8"))) {
             String line = null;
             while ((line = reader.readLine()) != null) {
                 dest.append(line + "\r\n");
             }
             return dest.toString();
-        } catch (IOException e) {
+
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
@@ -239,19 +244,34 @@ public class ZipMojoSupport extends AbstractMojo {
     }
 
     private void handleCss(File file, String name) {
-        String content = JSCSSZipHelpr.compress2CSS(file);
-        String newFileName = file.getName().split("\\.")[0] + ".hash." + parseByte2HexStr(instance.digest(content.getBytes())) + ".css";
-        String key = getPath(file).replace(file.getName(), newFileName).replace("\\", "/");
+        if(name.endsWith("components.css")) {
+            ObjectMetadata objectMetadata = new ObjectMetadata();
+            String mimetype = Mimetypes.getInstance().getMimetype(file.getName());
+            if (mimetype != null) {
+                objectMetadata.setContentType(mimetype);
+            }
+            String key = getPath(file);
+            mapping.put(name, prefix + "/" + projectName + "/" + key);
+            getLog().info(file.getName() + " ----->                                      " + prefix + "/" + projectName + "/" + key  + "                     " + mimetype);
+            objectMetadata.setContentLength(file.length());
+            ossClient.putObject(bucketName, projectName + "/" + key, file, objectMetadata);
 
-        mapping.put(name, prefix + "/" + projectName + "/" + key);
+        }else{
+            String content = JSCSSZipHelpr.compress2CSS(file);
+            String newFileName = file.getName().split("\\.")[0] + ".hash." + parseByte2HexStr(instance.digest(content.getBytes())) + ".css";
+            String key = getPath(file).replace(file.getName(), newFileName).replace("\\", "/");
 
-        upload(file.getName(), content, key);
+            mapping.put(name, prefix + "/" + projectName + "/" + key);
+
+            upload(file.getName(), content, key);
+
+        }
 
     }
 
     private void handleImage(File file, String name) throws IOException {
-        String newFileName = file.getName().split("\\.")[0] + ".hash." + parseByte2HexStr(instance.digest(FileUtils.fileRead(file).getBytes())) + "." + file.getName().split("\\.")[1];
-        String key = getPath(file).replace(file.getName(), newFileName).replace("\\", "/");
+        String newFileName = file.getName();
+        String key = getPath(file).replace("\\", "/");
 
         String value = prefix + "/" + projectName + "/" + key;
         mapping.put(name, value);
